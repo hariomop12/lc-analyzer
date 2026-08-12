@@ -1,8 +1,7 @@
 # Code Analyzer
 
 LeetCode-style solution analysis. Enter a LeetCode question number and your solution code, and get an AI analysis just like LeetCode Premium - verdict, approach, efficiency, code style and follow-up.
-
-Live: https://lc-analyzer.hariomvirkhare02.workers.dev
+ 
 
 ## Features
 
