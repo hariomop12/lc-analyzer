@@ -272,10 +272,24 @@ export default {
         if (!env.GEMINI_API_KEY) {
           return json({ error: "GEMINI_API_KEY not configured on the server." }, 500);
         }
+
+        const ip = request.headers.get("CF-Connecting-IP") || request.headers.get("X-Forwarded-For")?.split(",")[0] || "unknown";
+        const rateOk = await checkRateLimit(ip, ctx);
+        if (!rateOk.ok) {
+          return json({ ok: false, error: "Too many requests. Max 2 analyses per 5 minutes. Thoda wait kar ke try kar bhai 🙏" }, 429);
+        }
+
         const body = await request.json();
         const { number, question, code, language } = body;
         if (!code?.trim() || !language?.trim()) {
           return json({ error: "code and language are required." }, 400);
+        }
+
+        if (!/^\d{1,4}$/.test(String(number ?? "").trim())) {
+          return json({ ok: false, error: "Question number sirf digits me do bhai (e.g. 242)." }, 400);
+        }
+        if (!isCodeLike(code)) {
+          return json({ ok: false, error: "Code field me sirf code daalo bhai — question/HTML nahi." }, 400);
         }
 
         let questionText = question?.trim();
@@ -320,4 +334,43 @@ function json(data, status) {
     status,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+const RATE_LIMIT_PER_WINDOW = 2;
+const RATE_WINDOW_SECONDS = 300;
+
+async function checkRateLimit(ip, ctx) {
+  const now = Math.floor(Date.now() / 1000);
+  const bucket = Math.floor(now / RATE_WINDOW_SECONDS);
+  const cacheReq = new Request(`https://lc-analyzer.internal/ratelimit/${ip}/${bucket}`, { method: "GET" });
+  const cache = caches.default;
+
+  let count = 0;
+  const cached = await cache.match(cacheReq);
+  if (cached && cached.ok) {
+    count = Number(await cached.text()) || 0;
+  }
+
+  if (count >= RATE_LIMIT_PER_WINDOW) {
+    return { ok: false };
+  }
+
+  count++;
+  const ttl = RATE_WINDOW_SECONDS - (now % RATE_WINDOW_SECONDS);
+  ctx.waitUntil(
+    cache.put(cacheReq, new Response(String(count), {
+      headers: { "Cache-Control": `max-age=${ttl}` },
+    }))
+  );
+  return { ok: true };
+}
+
+function isCodeLike(code) {
+  const s = String(code).trim();
+  if (s.length < 5) return false;
+  if (/<\/?(script|style|html|body|div|span|p|h[1-6]|img|a)[^>]*>/i.test(s)) return false;
+  if (/^https?:\/\/\S+$/i.test(s)) return false;
+  const keywords = /\b(def|class|function|return|int\s+main|public|private|static|import|include|using\s+namespace|package|let\s|const\s|var\s|fn\s|void|if\s*\(|for\s*\(|while\s*\(|print|return)\b/i;
+  const operators = /[{}();=<>\[\]+\-*/%!&|^~]/;
+  return keywords.test(s) || operators.test(s);
 }

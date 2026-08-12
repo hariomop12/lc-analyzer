@@ -102,3 +102,16 @@ lc-analyzer/
 - The Gemini key is stored as a Cloudflare secret, never in the frontend code
 - The browser only talks to the Worker; the Worker talks to Gemini with the key
 - `GEMINI_API_KEY` and `GEMINI_MODEL` are configured server-side only
+
+## Rate Limiting
+
+- Abuse protection: maximum **2 analyses per IP per 5 minutes**
+- Enforced with Cloudflare's native `rate_limit` binding (no extra services)
+- Uses the real client IP (`CF-Connecting-IP`), so it works even behind proxies
+- Exceeding the limit returns HTTP 429 with a friendly message
+
+## Input Validation
+
+- Question number field accepts **digits only** (1-4 digits) - non-numeric input is stripped in the UI and rejected by the Worker
+- Code field accepts **code only** - HTML tags, URLs, or non-code text is rejected
+- Validation runs on both the frontend and the Worker, so direct API calls are protected too
